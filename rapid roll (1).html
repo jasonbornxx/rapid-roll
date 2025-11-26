@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rapid Roll Remastered</title>
+    <style>
+        body {
+            background-color: #000;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            touch-action: none;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        /* Full Screen Canvas */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100vh;
+            background-color: #4da6ff; /* Classic Nokia Sky Blue */
+        }
+
+        /* UI Layer */
+        #ui-layer {
+            position: absolute;
+            top: 10px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-sizing: border-box;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .hud-text {
+            color: black;
+            font-weight: bold;
+            font-size: 24px;
+            text-shadow: 1px 1px 0px white;
+        }
+
+        /* Transparent Round Controls */
+        #controls {
+            position: absolute;
+            bottom: 40px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 40px;
+            box-sizing: border-box;
+            pointer-events: auto; 
+        }
+
+        .control-btn {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px;
+            color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(2px);
+            user-select: none;
+            transition: transform 0.1s, background 0.1s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .control-btn:active {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(0.95);
+        }
+
+        /* Start Screen Overlay */
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+
+        .title {
+            color: #fff;
+            font-size: 40px;
+            margin-bottom: 10px;
+            text-shadow: 4px 4px 0 #ff4757;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .btn-start {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            border-radius: 30px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Canvas Layer -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD -->
+    <div id="ui-layer">
+        <div class="hud-text" id="livesDisplay">❤️❤️❤️</div>
+        <div class="hud-text" id="scoreDisplay">00000</div>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+        <div class="control-btn" id="btn-left" 
+             ontouchstart="inputLeft(true)" ontouchend="inputLeft(false)" 
+             onmousedown="inputLeft(true)" onmouseup="inputLeft(false)">
+             &#10094;
+        </div>
+        <div class="control-btn" id="btn-right" 
+             ontouchstart="inputRight(true)" ontouchend="inputRight(false)" 
+             onmousedown="inputRight(true)" onmouseup="inputRight(false)">
+             &#10095;
+        </div>
+    </div>
+
+    <!-- Menu Overlay -->
+    <div id="overlay">
+        <h1 class="title">RAPID ROLL</h1>
+        <p id="finalScore" style="color:white; font-size:20px; display:none; margin-bottom:30px;">Score: 0</p>
+        <button class="btn-start" onclick="startGame()">TAP TO START</button>
+    </div>
+
+<script>
+    // --- Sound Engine ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+
+        if (type === 'land') {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.exponentialRampToValueAtTime(40, now + 0.08);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.08);
+            osc.start(now);
+            osc.stop(now + 0.08);
+        } else if (type === 'heart') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.linearRampToValueAtTime(1200, now + 0.15);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            osc.start(now);
+            osc.stop(now + 0.3);
+        } else if (type === 'die') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100, now);
+            osc.frequency.linearRampToValueAtTime(10, now + 0.4);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.4);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        }
+    }
+
+    // --- Setup & Responsive Canvas ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // We use a logical coordinate system to ensure the game plays the same on all screens
+    // but we scale the rendering to fill the actual pixel count.
+    let scaleFactor = 1;
+    const LOGICAL_WIDTH = 360; 
+    let LOGICAL_HEIGHT = 640; 
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        scaleFactor = canvas.width / LOGICAL_WIDTH;
+        LOGICAL_HEIGHT = canvas.height / scaleFactor;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- Game Variables ---
+    let gameState = 'MENU';
+    let score = 0;
+    let lives = 3;
+    
+    // Physics & Speeds
+    let baseScrollSpeed = 2.5;
+    let scrollSpeed = 2.5;
+    
+    // Request 1: Variable Horizontal Speed
+    let baseMoveSpeed = 3.5; // Slower start
+    let currentMoveSpeed = 3.5; 
+
+    let isInvincible = false;
+    let invincibilityTimer = 0;
+
+    // Walls (Request 4)
+    const WALL_WIDTH = 20;
+
+    // Input
+    let keyLeft = false;
+    let keyRight = false;
+
+    function inputLeft(active) { keyLeft = active; }
+    function inputRight(active) { keyRight = active; }
+
+    // Keyboard fallback
+    window.addEventListener('keydown', e => {
+        if(e.key === 'ArrowLeft') keyLeft = true;
+        if(e.key === 'ArrowRight') keyRight = true;
+    });
+    window.addEventListener('keyup', e => {
+        if(e.key === 'ArrowLeft') keyLeft = false;
+        if(e.key === 'ArrowRight') keyRight = false;
+    });
+
+    // --- Game Objects ---
+    const ball = {
+        x: LOGICAL_WIDTH / 2,
+        y: 100,
+        radius: 9,
+        gravity: 6,
+        onGround: false,
+        color: '#d63031' // Slightly darker red like original
+    };
+
+    let platforms = [];
+
+    class Platform {
+        constructor(y, type) {
+            this.width = 85; // Original was quite wide
+            this.height = 12;
+            
+            // Spawn Logic: Must be between walls
+            let minX = WALL_WIDTH;
+            let maxX = LOGICAL_WIDTH - WALL_WIDTH - this.width;
+            this.x = Math.random() * (maxX - minX) + minX;
+            
+            this.y = y;
+            this.type = type; 
+            this.hasHeart = (type === 'normal' && Math.random() < 0.08);
+        }
+    }
+
+    // --- Core Logic ---
+
+    function resetGame() {
+        score = 0;
+        lives = 3;
+        scrollSpeed = baseScrollSpeed;
+        currentMoveSpeed = baseMoveSpeed;
+        platforms = [];
+        
+        // Create initial safe platforms
+        for(let i=0; i<8; i++) {
+            platforms.push(new Platform(200 + i * 90, 'normal'));
+        }
+        respawnBall();
+        updateUI();
+    }
+
+    function respawnBall() {
+        let safePlatforms = platforms.filter(p => p.type === 'normal' && p.y > 150 && p.y < LOGICAL_HEIGHT - 50);
+        safePlatforms.sort((a, b) => a.y - b.y);
+
+        if (safePlatforms.length > 0) {
+            let target = safePlatforms[0];
+            ball.x = target.x + target.width / 2;
+            ball.y = target.y - ball.radius - 2;
+        } else {
+            ball.x = LOGICAL_WIDTH / 2;
+            ball.y = LOGICAL_HEIGHT / 2;
+        }
+        
+        ball.onGround = true;
+        isInvincible = true;
+        invincibilityTimer = 100; // Frames of safety
+    }
+
+    function update() {
+        if (gameState !== 'PLAYING') return;
+
+        if (isInvincible) {
+            invincibilityTimer--;
+            if (invincibilityTimer <= 0) isInvincible = false;
+        }
+
+        // Difficulty Scaling
+        score += 0.1;
+        // Request 1: Horizontal speed increases with score
+        currentMoveSpeed = baseMoveSpeed + (score / 2000); 
+        // Limit max speed so it's controllable
+        if(currentMoveSpeed > 7) currentMoveSpeed = 7;
+
+        // Vertical scroll speed
+        scrollSpeed = baseScrollSpeed + (score / 1500);
+
+        // Move Platforms
+        platforms.forEach(p => p.y -= scrollSpeed);
+
+        // Generate Platforms
+        let lastP = platforms[platforms.length - 1];
+        if (lastP.y < LOGICAL_HEIGHT - 90) {
+            let spikeChance = Math.min(0.5, score / 3000);
+            let type = Math.random() < spikeChance ? 'spike' : 'normal';
+            platforms.push(new Platform(LOGICAL_HEIGHT, type));
+        }
+        if (platforms[0].y < -30) platforms.shift();
+
+        // Move Ball
+        if (keyLeft) ball.x -= currentMoveSpeed;
+        if (keyRight) ball.x += currentMoveSpeed;
+
+        // Wall Collision (Request 4)
+        // Ball cannot go past WALL_WIDTH on left or LOGICAL_WIDTH - WALL_WIDTH on right
+        if (ball.x - ball.radius < WALL_WIDTH) ball.x = WALL_WIDTH + ball.radius;
+        if (ball.x + ball.radius > LOGICAL_WIDTH - WALL_WIDTH) ball.x = LOGICAL_WIDTH - WALL_WIDTH - ball.radius;
+
+        // Physics
+        let wasOnGround = ball.onGround;
+        ball.onGround = false;
+
+        for (let p of platforms) {
+            // Horizontal Overlap
+            if (ball.x + ball.radius/2 > p.x && ball.x - ball.radius/2 < p.x + p.width) {
+                // Vertical Landing
+                if (ball.y + ball.radius >= p.y && ball.y + ball.radius <= p.y + 15 + scrollSpeed) {
+                    if (p.type === 'spike') {
+                        die();
+                        return;
+                    } else {
+                        ball.y = p.y - ball.radius;
+                        ball.onGround = true;
+                        if (!wasOnGround) playSound('land');
+                        if (p.hasHeart) {
+                            playSound('heart');
+                            lives = Math.min(lives+1, 5);
+                            p.hasHeart = false;
+                            updateUI();
+                        }
+                    }
+                }
+            }
+        }
+
+        if (ball.onGround) ball.y -= scrollSpeed;
+        else ball.y += ball.gravity;
+
+        // Death Conditions
+        if (ball.y - ball.radius <= 25) die(); // Ceiling spikes
+        if (ball.y - ball.radius > LOGICAL_HEIGHT) die(); // Bottom pit
+
+        updateUI();
+    }
+
+    function die() {
+        if (isInvincible) return;
+        playSound('die');
+        lives--;
+        updateUI();
+        if (lives <= 0) {
+            gameState = 'GAMEOVER';
+            document.getElementById('finalScore').innerText = "Final Score: " + Math.floor(score);
+            document.getElementById('finalScore').style.display = 'block';
+            document.getElementById('overlay').style.display = 'flex';
+            document.querySelector('.btn-start').innerText = "TRY AGAIN";
+        } else {
+            respawnBall();
+        }
+    }
+
+    // --- Drawing (Visuals matching Original) ---
+    function draw() {
+        ctx.setTransform(scaleFactor, 0, 0, scaleFactor, 0, 0);
+        
+        // Clear background
+        ctx.fillStyle = '#54a0ff'; // Nokia Sky Blue
+        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+        // 1. Draw Walls (Brick Texture)
+        ctx.fillStyle = '#e67e22'; // Brick Orange
+        // Left Wall
+        ctx.fillRect(0, 0, WALL_WIDTH, LOGICAL_HEIGHT);
+        // Right Wall
+        ctx.fillRect(LOGICAL_WIDTH - WALL_WIDTH, 0, WALL_WIDTH, LOGICAL_HEIGHT);
+        
+        // Draw Brick Lines
+        ctx.fillStyle = '#d35400'; // Darker orange/brown
+        for(let y=0; y<LOGICAL_HEIGHT; y+=20) {
+            ctx.fillRect(0, y, WALL_WIDTH, 2);
+            ctx.fillRect(LOGICAL_WIDTH - WALL_WIDTH, y, WALL_WIDTH, 2);
+        }
+        // Vertical lines for brick detail
+        ctx.fillRect(WALL_WIDTH - 2, 0, 2, LOGICAL_HEIGHT); // Border
+        ctx.fillRect(LOGICAL_WIDTH - WALL_WIDTH, 0, 2, LOGICAL_HEIGHT); // Border
+
+        // 2. Draw Ceiling Spikes
+        ctx.fillStyle = '#2d3436';
+        ctx.beginPath();
+        // Draw strictly between walls
+        for(let i=WALL_WIDTH; i<LOGICAL_WIDTH - WALL_WIDTH; i+=20) {
+            ctx.moveTo(i, 0);
+            ctx.lineTo(i+10, 25); // Pointy bit
+            ctx.lineTo(i+20, 0);
+        }
+        ctx.fill();
+
+        // 3. Draw Platforms
+        for (let p of platforms) {
+            if (p.type === 'normal') {
+                // Black Outline
+                ctx.fillStyle = '#000';
+                ctx.fillRect(p.x, p.y, p.width, p.height);
+                // Blue Center (Classic Nokia Look was Blue/Cyan or Yellow depending on version, user video showed yellow)
+                ctx.fillStyle = '#f1c40f'; // Yellow/Gold
+                ctx.fillRect(p.x+2, p.y+2, p.width-4, p.height-4);
+                
+                if (p.hasHeart) {
+                    ctx.fillStyle = '#e74c3c';
+                    ctx.font = 'bold 20px Arial';
+                    ctx.fillText('❤', p.x + p.width/2 - 10, p.y - 5);
+                }
+            } else {
+                // Spike Platform
+                ctx.fillStyle = '#000'; // Base
+                ctx.fillRect(p.x, p.y + 8, p.width, 4); 
+                // Spikes
+                ctx.beginPath();
+                for(let k=0; k<p.width; k+=10) {
+                    ctx.moveTo(p.x + k, p.y + 8);
+                    ctx.lineTo(p.x + k + 5, p.y - 2);
+                    ctx.lineTo(p.x + k + 10, p.y + 8);
+                }
+                ctx.fill();
+            }
+        }
+
+        // 4. Draw Ball
+        ctx.save();
+        if (isInvincible && Math.floor(Date.now() / 50) % 2 === 0) ctx.globalAlpha = 0.4;
+        
+        // Main Body
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.fillStyle = ball.color;
+        ctx.fill();
+        
+        // Black Outline
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+
+        // Shadow/Detail (to make it look rolling)
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.arc(ball.x+3, ball.y+3, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function updateUI() {
+        let hearts = "";
+        for(let i=0; i<lives; i++) hearts += "❤";
+        document.getElementById('livesDisplay').innerText = hearts;
+        document.getElementById('scoreDisplay').innerText = Math.floor(score).toString().padStart(5, '0');
+    }
+
+    function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    function startGame() {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        document.getElementById('overlay').style.display = 'none';
+        resetGame();
+        gameState = 'PLAYING';
+    }
+
+    // Auto-start render loop
+    loop();
+
+</script>
+</body>
+</html>
