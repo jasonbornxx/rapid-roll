@@ -508,5 +508,40 @@
     loop();
 
 </script>
+    <!-- Add this JS snippet after your inputLeft/inputRight and keyboard handlers -->
+<script>
+/* Robust input handling to avoid 'sticky' left/right states */
+
+// Bind pointer/mouse/touch events to on-screen buttons (prefer pointer events)
+function addButtonInputHandlers() {
+    const btnLeft = document.getElementById('btn-left');
+    const btnRight = document.getElementById('btn-right');
+
+    if (!btnLeft || !btnRight) return;
+
+    // Helper to add multiple events
+    const on = (el, evs, fn) => evs.forEach(ev => el.addEventListener(ev, fn, {passive: true}));
+
+    // Press -> activate
+    on(btnLeft, ['pointerdown', 'mousedown', 'touchstart'], () => inputLeft(true));
+    on(btnRight, ['pointerdown', 'mousedown', 'touchstart'], () => inputRight(true));
+
+    // Release/cancel -> deactivate
+    on(btnLeft, ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'touchcancel', 'mouseleave'], () => inputLeft(false));
+    on(btnRight, ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'touchcancel', 'mouseleave'], () => inputRight(false));
+}
+
+// Global safety: clear both keys on any end/blur/visibility change
+function installGlobalInputReset() {
+    const clearInput = () => { keyLeft = false; keyRight = false; };
+    ['pointerup', 'mouseup', 'touchend', 'touchcancel'].forEach(ev => window.addEventListener(ev, clearInput, {passive: true}));
+    window.addEventListener('blur', clearInput);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
+}
+
+// Run installers (call after DOM is ready)
+addButtonInputHandlers();
+installGlobalInputReset();
+</script>
 </body>
 </html>
